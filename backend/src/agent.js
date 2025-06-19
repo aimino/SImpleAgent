@@ -197,13 +197,14 @@ ${toolsDescription}
 Task: ${input}
 Previous context: ${context}
 
-You must respond with EXACTLY one of these formats:
+You must respond with EXACTLY one of these formats (no additional text):
 
+Format 1 - For continuing work:
 THOUGHT: [あなたの次に何をすべきかの推論を日本語で]
 TOOL: [tool name: task_planner, todo_manager, calculator, text_analyzer, or message_creator]
 INPUT: [input for the tool]
 
-OR if you have completed all tasks:
+Format 2 - For completion:
 FINAL: [すべてのタスク完了後の最終回答を日本語で]
 
 CRITICAL RULES:
@@ -211,7 +212,8 @@ CRITICAL RULES:
 - Use todo_manager to track progress: "list", "current", "complete [number]"
 - You MUST use tools. You cannot calculate, analyze, or create messages directly.
 - ALL text output including THOUGHT and FINAL must be in Japanese.
-- Always explain your reasoning in Japanese.`;
+- Response must be EXACTLY in the format shown above (3 lines for Format 1, 1 line for Format 2)
+- No extra explanation or text outside the format.`;
 
       try {
         const response = await this.llm.invoke([
@@ -228,26 +230,35 @@ CRITICAL RULES:
           return finalAnswer;
         }
         
-        // Parse response
-        const thoughtMatch = content.match(/THOUGHT:\s*([\s\S]*?)(?=\nTOOL:|$)/);
-        const toolMatch = content.match(/TOOL:\s*(.*?)(?=\n|$)/);
-        const inputMatch = content.match(/INPUT:\s*(.*?)(?=\n|$)/);
+        // Parse response - more flexible parsing
+        const lines = content.split('\n').filter(line => line.trim());
         
         console.log('Parsing content:', content);
-        console.log('Thought match:', thoughtMatch);
-        console.log('Tool match:', toolMatch);
-        console.log('Input match:', inputMatch);
+        console.log('Lines:', lines);
         
-        if (thoughtMatch) {
-          const thought = thoughtMatch[1].trim();
+        let thought = '';
+        let toolName = '';
+        let toolInput = '';
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('THOUGHT:')) {
+            thought = trimmedLine.replace('THOUGHT:', '').trim();
+          } else if (trimmedLine.startsWith('TOOL:')) {
+            toolName = trimmedLine.replace('TOOL:', '').trim();
+          } else if (trimmedLine.startsWith('INPUT:')) {
+            toolInput = trimmedLine.replace('INPUT:', '').trim();
+          }
+        }
+        
+        console.log('Parsed - Thought:', thought, 'Tool:', toolName, 'Input:', toolInput);
+        
+        if (thought) {
           addLog('thought', `思考: ${thought}`);
           context += ` Thought: ${thought}`;
         }
         
-        if (toolMatch && inputMatch) {
-          const toolName = toolMatch[1].trim();
-          const toolInput = inputMatch[1].trim();
-          
+        if (toolName && toolInput) {
           addLog('action', `アクション: ${toolName} (入力: ${toolInput})`);
           
           const tool = this.tools[toolName];
@@ -264,8 +275,11 @@ CRITICAL RULES:
             addLog('tool', `未知のツール: ${toolName}`);
             context += ` Unknown tool: ${toolName}`;
           }
+        } else if (thought && !toolName) {
+          // Only thought provided, continue to next iteration
+          continue;
         } else {
-          addLog('text', 'フォーマットエラー: THOUGHT/TOOL/INPUT または FINAL が必要です');
+          addLog('text', `フォーマットエラー: THOUGHT/TOOL/INPUT または FINAL が必要です。受信内容: ${content}`);
           break;
         }
         
