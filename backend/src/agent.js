@@ -52,11 +52,18 @@ export class AIAgent {
       },
       message_creator: {
         name: 'message_creator',
-        description: 'メッセージや挨拶文を作成します。入力はメッセージに含める情報です',
+        description: 'データや結果を使って適切な分析レポートやメッセージを作成します。入力は使用するデータや情報です',
         func: async (info) => {
           try {
             console.log(`🔧 Message creator tool executing with: ${info}`);
-            const message = `作成したメッセージ: ${info}という情報を使って、こんにちは！素晴らしい結果をお知らせします: ${info}。今日も良い一日をお過ごしください！`;
+            
+            // LLMを使って適切なメッセージを生成
+            const messageResponse = await this.llm.invoke([
+              { role: 'system', content: '与えられた情報をもとに、適切で有用な分析レポートやメッセージを日本語で作成してください。' },
+              { role: 'user', content: `以下の情報を使用してレポートやメッセージを作成してください。情報の内容に応じて適切な形式（分析レポート、要約、説明文など）で作成してください。\n\n情報: ${info}` }
+            ]);
+            
+            const message = `作成した内容: ${messageResponse.content.trim()}`;
             console.log(`✅ Message creator result: ${message}`);
             return message;
           } catch (error) {
