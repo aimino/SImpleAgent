@@ -10,6 +10,7 @@ export class AIAgent {
     
     this.tools = this.createTools();
     this.memory = [];
+    this.currentTodos = [];
   }
 
   createTools() {
@@ -64,6 +65,103 @@ export class AIAgent {
             return errorMsg;
           }
         }
+      },
+      task_planner: {
+        name: 'task_planner',
+        description: 'タスクを細かいサブタスクに分解してTODOリストを作成します。入力は分解したいメインタスクです',
+        func: async (mainTask) => {
+          try {
+            console.log(`🔧 Task planner tool executing for: ${mainTask}`);
+            
+            // LLMを使ってタスクを分解
+            const planResponse = await this.llm.invoke([
+              { role: 'system', content: 'あなたはタスクを効率的なサブタスクに分解する専門家です。必ず日本語で応答してください。' },
+              { role: 'user', content: `以下のタスクを3-5個の具体的なサブタスクに分解してください。各サブタスクは以下の形式で出力してください：
+
+タスク: ${mainTask}
+
+出力形式：
+1. [サブタスク1の説明]
+2. [サブタスク2の説明]
+3. [サブタスク3の説明]
+...
+
+条件：
+- 各サブタスクは具体的で実行可能である
+- 利用可能なツール（calculator, text_analyzer, message_creator）を考慮する
+- 論理的な順序で並べる` }
+            ]);
+            
+            const planContent = planResponse.content.trim();
+            console.log(`📋 Task breakdown: ${planContent}`);
+            
+            // サブタスクを抽出してTODOリストを作成
+            const subtasks = planContent.split('\n')
+              .filter(line => line.match(/^\d+\./))
+              .map((line, index) => ({
+                id: `subtask_${Date.now()}_${index}`,
+                title: line.replace(/^\d+\.\s*/, '').trim(),
+                status: 'pending',
+                priority: index === 0 ? 'high' : 'medium'
+              }));
+            
+            this.currentTodos = subtasks;
+            
+            const result = `TODOリスト作成完了:\n${subtasks.map((task, i) => `${i+1}. ${task.title} (${task.status})`).join('\n')}`;
+            console.log(`✅ Task planner result: ${result}`);
+            return result;
+          } catch (error) {
+            const errorMsg = `タスク計画エラー: ${error.message}`;
+            console.log(`❌ Task planner error: ${errorMsg}`);
+            return errorMsg;
+          }
+        }
+      },
+      todo_manager: {
+        name: 'todo_manager',
+        description: 'TODOリストを管理します。アクション（list, complete, current）と対象のタスクIDまたは番号を指定',
+        func: async (input) => {
+          try {
+            console.log(`🔧 TODO manager tool executing with: ${input}`);
+            
+            const [action, ...params] = input.split(' ');
+            
+            switch (action.toLowerCase()) {
+              case 'list':
+                const listResult = this.currentTodos.length > 0 
+                  ? `現在のTODOリスト:\n${this.currentTodos.map((task, i) => `${i+1}. ${task.title} [${task.status}]`).join('\n')}`
+                  : 'TODOリストは空です';
+                console.log(`✅ TODO list: ${listResult}`);
+                return listResult;
+                
+              case 'complete':
+                const taskIndex = parseInt(params[0]) - 1;
+                if (taskIndex >= 0 && taskIndex < this.currentTodos.length) {
+                  this.currentTodos[taskIndex].status = 'completed';
+                  const completeResult = `タスク${taskIndex + 1}「${this.currentTodos[taskIndex].title}」を完了としました`;
+                  console.log(`✅ Task completed: ${completeResult}`);
+                  return completeResult;
+                } else {
+                  return `無効なタスク番号: ${params[0]}`;
+                }
+                
+              case 'current':
+                const currentTask = this.currentTodos.find(task => task.status === 'pending');
+                const currentResult = currentTask 
+                  ? `現在のタスク: ${currentTask.title}`
+                  : '完了していないタスクはありません';
+                console.log(`✅ Current task: ${currentResult}`);
+                return currentResult;
+                
+              default:
+                return `不明なアクション: ${action}。使用可能なアクション: list, complete, current`;
+            }
+          } catch (error) {
+            const errorMsg = `TODO管理エラー: ${error.message}`;
+            console.log(`❌ TODO manager error: ${errorMsg}`);
+            return errorMsg;
+          }
+        }
       }
     };
   }
@@ -85,6 +183,14 @@ export class AIAgent {
       
       const prompt = `You are an AI agent that MUST use tools to solve tasks step by step. You MUST respond in Japanese.
 
+WORKFLOW:
+1. First, analyze if this is a new task that needs to be broken down
+2. If it's a complex task, use task_planner to create a TODO list
+3. Use todo_manager to track progress and get current tasks
+4. Execute individual tasks using appropriate tools
+5. Mark tasks as complete using todo_manager
+6. Provide final summary when all tasks are done
+
 Available tools:
 ${toolsDescription}
 
@@ -94,13 +200,15 @@ Previous context: ${context}
 You must respond with EXACTLY one of these formats:
 
 THOUGHT: [あなたの次に何をすべきかの推論を日本語で]
-TOOL: [tool name: calculator, text_analyzer, or message_creator]
+TOOL: [tool name: task_planner, todo_manager, calculator, text_analyzer, or message_creator]
 INPUT: [input for the tool]
 
-OR if you have completed the task:
-FINAL: [ツール実行結果に基づく最終回答を日本語で]
+OR if you have completed all tasks:
+FINAL: [すべてのタスク完了後の最終回答を日本語で]
 
 CRITICAL RULES:
+- For complex tasks, ALWAYS start with task_planner
+- Use todo_manager to track progress: "list", "current", "complete [number]"
 - You MUST use tools. You cannot calculate, analyze, or create messages directly.
 - ALL text output including THOUGHT and FINAL must be in Japanese.
 - Always explain your reasoning in Japanese.`;

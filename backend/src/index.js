@@ -92,6 +92,7 @@ app.post('/api/agent/execute', async (req, res) => {
       res.write(`data: ${JSON.stringify({
         type: 'complete',
         response: result,
+        todos: aiAgent.currentTodos,
         timestamp: new Date().toISOString()
       })}\n\n`);
       

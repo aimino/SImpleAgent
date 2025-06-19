@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
+interface TodoItem {
+  id: string;
+  title: string;
+  status: 'pending' | 'completed';
+  priority: 'high' | 'medium' | 'low';
+}
+
 interface Message {
   id: string;
   content: string;
@@ -9,6 +16,7 @@ interface Message {
   isThinking?: boolean;
   steps?: any[];
   executionLogs?: ExecutionLog[];
+  todos?: TodoItem[];
 }
 
 interface ChatResponse {
@@ -17,6 +25,7 @@ interface ChatResponse {
   error?: string;
   steps?: any[];
   executionLogs?: ExecutionLog[];
+  todos?: TodoItem[];
   type?: string;
 }
 
@@ -41,14 +50,15 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
-  const addMessage = (content: string, type: 'user' | 'agent' | 'system', steps?: any[], executionLogs?: ExecutionLog[]) => {
+  const addMessage = (content: string, type: 'user' | 'agent' | 'system', steps?: any[], executionLogs?: ExecutionLog[], todos?: TodoItem[]) => {
     const newMessage: Message = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
       type,
       timestamp: new Date().toISOString(),
       steps,
-      executionLogs
+      executionLogs,
+      todos
     };
     setMessages(prev => [...prev, newMessage]);
   };
@@ -134,7 +144,8 @@ function App() {
                       if (msg.id === agentMessageId) {
                         return {
                           ...msg,
-                          content: data.response
+                          content: data.response,
+                          todos: data.todos
                         };
                       }
                       return msg;
@@ -215,7 +226,7 @@ function App() {
           </div>
         </div>
         <p className="text-sm text-gray-500 mt-2">
-          LangChainを使った自律エージェントモード（複数ステップの実行可能）
+          タスク分解機能付き自律エージェントモード（TODOリスト管理・複数ステップ実行）
         </p>
       </div>
 
@@ -226,7 +237,7 @@ function App() {
             <div className="text-4xl mb-4">🤖</div>
             <h3 className="text-lg font-medium text-gray-800 mb-2">AIエージェントとチャットを始めましょう</h3>
             <p className="text-gray-500">
-              タスクを入力してAIエージェントに自律実行させてください
+              タスクを入力してください。エージェントが自動的にサブタスクに分解してTODOリストを作成し、順次実行します。
             </p>
           </div>
         )}
@@ -249,6 +260,33 @@ function App() {
                 {message.content}
               </div>
               
+              {message.todos && message.todos.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <p className="text-sm font-medium text-gray-600 mb-2">📋 TODOリスト:</p>
+                  <div className="space-y-1">
+                    {message.todos.map((todo, index) => (
+                      <div key={todo.id} className={`text-sm p-2 rounded flex items-center space-x-2 ${
+                        todo.status === 'completed' ? 'bg-green-50 text-green-800' : 'bg-gray-50 text-gray-800'
+                      }`}>
+                        <span className="text-base">
+                          {todo.status === 'completed' ? '✅' : '⏳'}
+                        </span>
+                        <span className={`flex-1 ${todo.status === 'completed' ? 'line-through' : ''}`}>
+                          {index + 1}. {todo.title}
+                        </span>
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          todo.priority === 'high' ? 'bg-red-100 text-red-700' :
+                          todo.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {todo.priority}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {message.executionLogs && message.executionLogs.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-200">
                   <p className="text-sm font-medium text-gray-600 mb-2">🤖 エージェントの思考プロセス:</p>
@@ -313,7 +351,7 @@ function App() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="タスクを入力してください（例：「10 + 5 * 2を計算して挨拶文を作って」）..."
+            placeholder="タスクを入力してください（例：「分析レポートを作成して」「複数の計算を実行して結果をまとめて」）..."
             className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             rows={3}
             disabled={isLoading}
